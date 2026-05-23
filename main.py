@@ -1,5 +1,10 @@
+import sys, io
+if hasattr(sys.stdout, 'buffer'):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 import uvicorn
 import os
 import json
@@ -342,12 +347,6 @@ def book_appointment_on_calendar(patient_name: str, phone: str, appointment_time
             event_start = now + timedelta(hours=1)
 
         event_end = event_start + timedelta(hours=1)
-        event = {
-            "summary": f"Dental Appointment - {patient_name}",
-            "description": f"Patient: {patient_name}\nPhone: {phone}",
-            "start": {"dateTime": event_start.isoformat(), "timeZone": "UTC"},
-            "end": {"dateTime": event_end.isoformat(), "timeZone": "UTC"},
-        }
         appt_id = generate_appointment_id()
         event = {
             "summary": f"Dental Appointment - {patient_name}",
@@ -370,277 +369,14 @@ def book_appointment_on_calendar(patient_name: str, phone: str, appointment_time
         print(f"Booking error: {e}")
         return False, None
 
+# --- Mount static files ---
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 # --- Routes ---
-@app.get("/", response_class=HTMLResponse)
+@app.get("/")
 async def root():
-    conn = sqlite3.connect("appointments.db")
-    rows = conn.execute("SELECT * FROM appointments ORDER BY booked_at DESC").fetchall()
-    conn.close()
+    return FileResponse("static/index.html")
 
-    today = datetime.utcnow().strftime("%Y-%m-%d")
-    total = len(rows)
-    today_count = sum(1 for r in rows if r[4] and r[4].startswith(today))
-
-    rows_html = ""
-    for i, r in enumerate(rows):
-        booked_raw = r[5] or ""
-        try:
-            booked_fmt = datetime.fromisoformat(booked_raw).strftime("%b %d, %Y %I:%M %p")
-        except Exception:
-            booked_fmt = booked_raw
-        badge = "badge-today" if booked_raw.startswith(today) else "badge-past"
-        label = "Today" if booked_raw.startswith(today) else "Booked"
-        appt_id = r[1] or "—"
-        rows_html += f"""
-        <tr>
-            <td><span class="row-num">{i + 1}</span></td>
-            <td><span class="id-badge">{appt_id}</span></td>
-            <td><div class="patient-name">{r[2] or "—"}</div></td>
-            <td><span class="phone-badge">📞 {r[3] or "—"}</span></td>
-            <td><span class="time-badge">🗓 {r[4] or "—"}</span></td>
-            <td><span class="status-badge {badge}">{label}</span></td>
-            <td><span class="date-text">{booked_fmt}</span></td>
-        </tr>"""
-
-    empty_state = "" if rows else """
-        <tr><td colspan="6">
-            <div class="empty-state">
-                <div class="empty-icon">🦷</div>
-                <div>No appointments yet</div>
-                <div class="empty-sub">Appointments will appear here after patients call</div>
-            </div>
-        </td></tr>"""
-
-    html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Oneofi Dental Clinic — Dashboard</title>
-    <style>
-        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-        body {{
-            font-family: 'Segoe UI', system-ui, sans-serif;
-            background: #0f1117;
-            color: #e2e8f0;
-            min-height: 100vh;
-        }}
-        .topbar {{
-            background: linear-gradient(135deg, #1a1f2e 0%, #16213e 100%);
-            border-bottom: 1px solid #2d3748;
-            padding: 0 32px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            height: 64px;
-            position: sticky;
-            top: 0;
-            z-index: 100;
-            backdrop-filter: blur(10px);
-        }}
-        .logo {{ display: flex; align-items: center; gap: 12px; }}
-        .logo-icon {{
-            width: 36px; height: 36px;
-            background: linear-gradient(135deg, #667eea, #764ba2);
-            border-radius: 10px;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 18px;
-        }}
-        .logo-text {{ font-size: 17px; font-weight: 700; color: #fff; }}
-        .logo-sub {{ font-size: 11px; color: #718096; margin-top: 1px; }}
-        .topbar-right {{ display: flex; align-items: center; gap: 16px; }}
-        .live-dot {{
-            width: 8px; height: 8px; border-radius: 50%;
-            background: #48bb78;
-            box-shadow: 0 0 8px #48bb78;
-            animation: pulse 2s infinite;
-        }}
-        @keyframes pulse {{
-            0%, 100% {{ opacity: 1; }}
-            50% {{ opacity: 0.4; }}
-        }}
-        .live-text {{ font-size: 12px; color: #48bb78; font-weight: 500; }}
-        .refresh-btn {{
-            background: #2d3748; border: 1px solid #4a5568;
-            color: #a0aec0; padding: 6px 14px; border-radius: 8px;
-            font-size: 12px; cursor: pointer; transition: all 0.2s;
-            text-decoration: none; display: flex; align-items: center; gap: 6px;
-        }}
-        .refresh-btn:hover {{ background: #4a5568; color: #fff; }}
-
-        .main {{ padding: 32px; max-width: 1200px; margin: 0 auto; }}
-
-        .page-header {{ margin-bottom: 28px; }}
-        .page-title {{ font-size: 26px; font-weight: 700; color: #fff; }}
-        .page-sub {{ font-size: 14px; color: #718096; margin-top: 4px; }}
-
-        .stats-grid {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 16px;
-            margin-bottom: 28px;
-        }}
-        .stat-card {{
-            background: #1a1f2e;
-            border: 1px solid #2d3748;
-            border-radius: 14px;
-            padding: 20px 24px;
-            transition: transform 0.2s;
-        }}
-        .stat-card:hover {{ transform: translateY(-2px); }}
-        .stat-label {{ font-size: 12px; color: #718096; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }}
-        .stat-value {{ font-size: 36px; font-weight: 800; margin-top: 6px; }}
-        .stat-icon {{ font-size: 22px; margin-bottom: 8px; }}
-        .stat-total .stat-value {{ color: #667eea; }}
-        .stat-today .stat-value {{ color: #48bb78; }}
-        .stat-api .stat-value {{ color: #ed8936; font-size: 14px; margin-top: 10px; }}
-
-        .table-card {{
-            background: #1a1f2e;
-            border: 1px solid #2d3748;
-            border-radius: 16px;
-            overflow: hidden;
-        }}
-        .table-header {{
-            padding: 20px 24px;
-            border-bottom: 1px solid #2d3748;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }}
-        .table-title {{ font-size: 15px; font-weight: 600; color: #fff; }}
-        .table-count {{
-            background: #2d3748; color: #a0aec0;
-            font-size: 12px; padding: 3px 10px;
-            border-radius: 20px; font-weight: 500;
-        }}
-        table {{ width: 100%; border-collapse: collapse; }}
-        thead tr {{ background: #16213e; }}
-        th {{
-            text-align: left; padding: 12px 20px;
-            font-size: 11px; font-weight: 600;
-            color: #718096; text-transform: uppercase;
-            letter-spacing: 0.8px; border-bottom: 1px solid #2d3748;
-        }}
-        td {{ padding: 14px 20px; border-bottom: 1px solid #1e2535; vertical-align: middle; }}
-        tr:last-child td {{ border-bottom: none; }}
-        tbody tr:hover {{ background: #16213e; transition: background 0.15s; }}
-        .row-num {{
-            width: 26px; height: 26px; border-radius: 6px;
-            background: #2d3748; color: #718096;
-            font-size: 12px; font-weight: 600;
-            display: inline-flex; align-items: center; justify-content: center;
-        }}
-        .id-badge {{
-            background: linear-gradient(135deg, #2d3748, #1a202c);
-            color: #f6e05e; border: 1px solid #744210;
-            padding: 4px 10px; border-radius: 6px;
-            font-size: 12px; font-weight: 700; letter-spacing: 1px;
-            font-family: monospace;
-        }}
-        .patient-name {{ font-weight: 600; color: #e2e8f0; font-size: 14px; }}
-        .phone-badge {{
-            background: #1e2535; color: #90cdf4;
-            padding: 4px 10px; border-radius: 6px;
-            font-size: 13px; white-space: nowrap;
-        }}
-        .time-badge {{
-            background: #1e2535; color: #d6bcfa;
-            padding: 4px 10px; border-radius: 6px;
-            font-size: 13px; white-space: nowrap;
-        }}
-        .status-badge {{
-            padding: 4px 12px; border-radius: 20px;
-            font-size: 11px; font-weight: 600; text-transform: uppercase;
-        }}
-        .badge-today {{ background: #1c4532; color: #68d391; border: 1px solid #2f855a; }}
-        .badge-past {{ background: #2d3748; color: #a0aec0; border: 1px solid #4a5568; }}
-        .date-text {{ font-size: 12px; color: #718096; }}
-        .empty-state {{
-            text-align: center; padding: 60px 20px;
-            color: #4a5568; font-size: 15px;
-        }}
-        .empty-icon {{ font-size: 48px; margin-bottom: 12px; }}
-        .empty-sub {{ font-size: 13px; color: #4a5568; margin-top: 6px; }}
-        .footer {{
-            text-align: center; padding: 24px;
-            font-size: 12px; color: #4a5568;
-        }}
-    </style>
-</head>
-<body>
-    <div class="topbar">
-        <div class="logo">
-            <div class="logo-icon">🦷</div>
-            <div>
-                <div class="logo-text">Oneofi Dental Clinic</div>
-                <div class="logo-sub">AI Receptionist Dashboard</div>
-            </div>
-        </div>
-        <div class="topbar-right">
-            <div class="live-dot"></div>
-            <span class="live-text">Live</span>
-            <a href="/" class="refresh-btn">↻ Refresh</a>
-        </div>
-    </div>
-
-    <div class="main">
-        <div class="page-header">
-            <div class="page-title">Appointments</div>
-            <div class="page-sub">All bookings made through the AI voice receptionist</div>
-        </div>
-
-        <div class="stats-grid">
-            <div class="stat-card stat-total">
-                <div class="stat-icon">📋</div>
-                <div class="stat-label">Total Appointments</div>
-                <div class="stat-value">{total}</div>
-            </div>
-            <div class="stat-card stat-today">
-                <div class="stat-icon">📅</div>
-                <div class="stat-label">Booked Today</div>
-                <div class="stat-value">{today_count}</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon">🤖</div>
-                <div class="stat-label">API Status</div>
-                <div class="stat-value" style="color:#48bb78; font-size:18px; margin-top:10px;">● Online</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon">🗓</div>
-                <div class="stat-label">Today's Date</div>
-                <div class="stat-value" style="color:#ed8936; font-size:16px; margin-top:8px;">{datetime.utcnow().strftime("%b %d, %Y")}</div>
-            </div>
-        </div>
-
-        <div class="table-card">
-            <div class="table-header">
-                <span class="table-title">Patient Bookings</span>
-                <span class="table-count">{total} total</span>
-            </div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>#</th>
-                        <th>Appointment ID</th>
-                        <th>Patient Name</th>
-                        <th>Phone</th>
-                        <th>Appointment Time</th>
-                        <th>Status</th>
-                        <th>Booked At</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {rows_html}
-                    {empty_state}
-                </tbody>
-            </table>
-        </div>
-    </div>
-    <div class="footer">Oneofi Dental Clinic · AI Voice Receptionist · {datetime.utcnow().strftime("%Y")}</div>
-</body>
-</html>"""
-    return HTMLResponse(content=html)
 
 @app.get("/health")
 async def health_check():
@@ -649,10 +385,12 @@ async def health_check():
 @app.get("/appointments")
 async def list_appointments():
     conn = sqlite3.connect("appointments.db")
-    rows = conn.execute("SELECT * FROM appointments ORDER BY booked_at DESC").fetchall()
+    rows = conn.execute(
+        "SELECT id, patient_name, phone, appointment_time, booked_at, appointment_id FROM appointments ORDER BY booked_at DESC"
+    ).fetchall()
     conn.close()
     appointments = [
-        {"id": r[0], "patient_name": r[1], "phone": r[2], "appointment_time": r[3], "booked_at": r[4]}
+        {"id": r[0], "patient_name": r[1], "phone": r[2], "appointment_time": r[3], "booked_at": r[4], "appointment_id": r[5]}
         for r in rows
     ]
     return {"total_appointments": len(appointments), "appointments": appointments}

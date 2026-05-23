@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Oneofi Dental — Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #080c14;
+      --surface: #0f1520;
+      --surface2: #141c2b;
+      --border: #1e2a3d;
+      --border2: #263348;
+      --text: #e8edf5;
+      --muted: #5a6a85;
+      --accent: #3b82f6;
+      --accent2: #6366f1;
+      --green: #22c55e;
+      --yellow: #eab308;
+      --red: #ef4444;
+      --purple: #a855f7;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* SIDEBAR */
+    .sidebar {
+      position: fixed; left: 0; top: 0; bottom: 0;
+      width: 220px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column;
+      padding: 24px 16px;
+      z-index: 100;
+    }
+    .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 28px; }
+    .brand-icon {
+      width: 38px; height: 38px; border-radius: 10px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; flex-shrink: 0;
+    }
+    .brand-name { font-size: 14px; font-weight: 700; color: var(--text); line-height: 1.3; }
+    .brand-sub { font-size: 11px; color: var(--muted); }
+
+    .nav-label { font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; padding: 0 8px 8px; }
+    .nav-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 12px; border-radius: 8px;
+      font-size: 13px; font-weight: 500; color: var(--muted);
+      cursor: pointer; transition: all 0.15s; text-decoration: none;
+      margin-bottom: 2px;
+    }
+    .nav-item:hover { background: var(--surface2); color: var(--text); }
+    .nav-item.active { background: rgba(59,130,246,0.12); color: var(--accent); }
+    .nav-icon { font-size: 16px; width: 20px; text-align: center; }
+
+    .sidebar-footer {
+      margin-top: auto; padding: 16px 8px 0;
+      border-top: 1px solid var(--border);
+    }
+    .status-dot {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 12px; color: var(--green);
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: blink 2s infinite; }
+    @keyframes blink { 0%,100%{opacity:1;} 50%{opacity:0.3;} }
+
+    /* MAIN */
+    .main { margin-left: 220px; padding: 32px 36px; }
+
+    /* TOP BAR */
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 32px;
+    }
+    .page-title { font-size: 22px; font-weight: 700; }
+    .page-sub { font-size: 13px; color: var(--muted); margin-top: 3px; }
+    .topbar-actions { display: flex; gap: 10px; align-items: center; }
+    .btn {
+      display: flex; align-items: center; gap: 6px;
+      padding: 8px 16px; border-radius: 8px; font-size: 13px;
+      font-weight: 500; cursor: pointer; border: none;
+      font-family: 'Inter', sans-serif; transition: all 0.15s;
+    }
+    .btn-ghost { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
+    .btn-ghost:hover { color: var(--text); border-color: var(--border2); }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: #2563eb; }
+    .search-box {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 8px 14px;
+      font-size: 13px; color: var(--muted);
+    }
+    .search-box input {
+      background: none; border: none; outline: none;
+      color: var(--text); font-size: 13px; font-family: 'Inter', sans-serif;
+      width: 180px;
+    }
+    .search-box input::placeholder { color: var(--muted); }
+
+    /* STATS */
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px; }
+    .stat {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 20px 22px;
+      transition: border-color 0.2s;
+    }
+    .stat:hover { border-color: var(--border2); }
+    .stat-top { display: flex; justify-content: space-between; align-items: flex-start; }
+    .stat-label { font-size: 12px; color: var(--muted); font-weight: 500; }
+    .stat-icon { font-size: 20px; }
+    .stat-value { font-size: 32px; font-weight: 800; margin-top: 10px; }
+    .stat-change { font-size: 12px; margin-top: 6px; color: var(--muted); }
+    .c-blue { color: var(--accent); }
+    .c-green { color: var(--green); }
+    .c-yellow { color: var(--yellow); }
+    .c-purple { color: var(--purple); }
+
+    /* TABLE */
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 16px; overflow: hidden;
+    }
+    .card-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 18px 24px; border-bottom: 1px solid var(--border);
+    }
+    .card-title { font-size: 14px; font-weight: 600; }
+    .pill {
+      background: var(--surface2); border: 1px solid var(--border);
+      color: var(--muted); font-size: 11px; font-weight: 600;
+      padding: 3px 10px; border-radius: 20px;
+    }
+
+    table { width: 100%; border-collapse: collapse; }
+    thead tr { background: var(--surface2); }
+    th {
+      padding: 11px 20px; text-align: left;
+      font-size: 11px; font-weight: 600; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.8px;
+      border-bottom: 1px solid var(--border);
+    }
+    td { padding: 14px 20px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tbody tr { transition: background 0.1s; }
+    tbody tr:hover { background: rgba(255,255,255,0.02); }
+
+    .row-num {
+      width: 26px; height: 26px; border-radius: 6px;
+      background: var(--surface2); color: var(--muted);
+      font-size: 11px; font-weight: 600;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .id-chip {
+      display: inline-flex; align-items: center; gap: 5px;
+      background: rgba(234,179,8,0.1); border: 1px solid rgba(234,179,8,0.25);
+      color: var(--yellow); padding: 4px 10px; border-radius: 6px;
+      font-size: 13px; font-weight: 700; font-family: monospace;
+      letter-spacing: 2px;
+    }
+    .patient-cell { display: flex; align-items: center; gap: 10px; }
+    .avatar {
+      width: 32px; height: 32px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 700; color: #fff; flex-shrink: 0;
+    }
+    .patient-name { font-size: 13px; font-weight: 600; }
+    .phone-text { font-size: 12px; color: var(--muted); margin-top: 1px; }
+    .time-chip {
+      display: inline-flex; align-items: center; gap: 5px;
+      background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.2);
+      color: #818cf8; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 500;
+    }
+    .badge {
+      display: inline-block; padding: 3px 10px; border-radius: 20px;
+      font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .badge-new { background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.2); color: var(--green); }
+    .badge-old { background: var(--surface2); border: 1px solid var(--border); color: var(--muted); }
+    .date-text { font-size: 12px; color: var(--muted); }
+
+    /* EMPTY */
+    .empty {
+      text-align: center; padding: 72px 20px;
+      color: var(--muted);
+    }
+    .empty-icon { font-size: 52px; margin-bottom: 14px; opacity: 0.4; }
+    .empty-title { font-size: 15px; font-weight: 600; color: var(--text); }
+    .empty-sub { font-size: 13px; margin-top: 6px; }
+
+    /* LOADING */
+    .loading { text-align: center; padding: 48px; color: var(--muted); font-size: 13px; }
+    .spinner {
+      width: 28px; height: 28px; border: 3px solid var(--border);
+      border-top-color: var(--accent); border-radius: 50%;
+      animation: spin 0.7s linear infinite; margin: 0 auto 12px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* TOAST */
+    .toast {
+      position: fixed; bottom: 24px; right: 24px;
+      background: var(--surface); border: 1px solid var(--green);
+      color: var(--green); padding: 12px 20px; border-radius: 10px;
+      font-size: 13px; font-weight: 500;
+      display: none; align-items: center; gap: 8px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+      z-index: 999;
+    }
+    .toast.show { display: flex; }
+  </style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<div class="sidebar">
+  <div class="brand">
+    <div class="brand-icon">🦷</div>
+    <div>
+      <div class="brand-name">Oneofi Dental</div>
+      <div class="brand-sub">AI Receptionist</div>
+    </div>
+  </div>
+
+  <div class="nav-label">Menu</div>
+  <a class="nav-item active" href="#">
+    <span class="nav-icon">📋</span> Appointments
+  </a>
+  <a class="nav-item" href="/health" target="_blank">
+    <span class="nav-icon">💚</span> API Health
+  </a>
+  <a class="nav-item" href="/appointments" target="_blank">
+    <span class="nav-icon">🔗</span> JSON API
+  </a>
+
+  <div class="sidebar-footer">
+    <div class="status-dot">
+      <div class="dot"></div> System Online
+    </div>
+  </div>
+</div>
+
+<!-- MAIN CONTENT -->
+<div class="main">
+  <div class="topbar">
+    <div>
+      <div class="page-title">Appointments</div>
+      <div class="page-sub" id="last-updated">Loading...</div>
+    </div>
+    <div class="topbar-actions">
+      <div class="search-box">
+        <span>🔍</span>
+        <input type="text" id="search" placeholder="Search patient or ID..." oninput="filterTable()" />
+      </div>
+      <button class="btn btn-ghost" onclick="loadData()">↻ Refresh</button>
+    </div>
+  </div>
+
+  <!-- STATS -->
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-top">
+        <span class="stat-label">Total Appointments</span>
+        <span class="stat-icon">📋</span>
+      </div>
+      <div class="stat-value c-blue" id="stat-total">—</div>
+      <div class="stat-change">All time bookings</div>
+    </div>
+    <div class="stat">
+      <div class="stat-top">
+        <span class="stat-label">Booked Today</span>
+        <span class="stat-icon">📅</span>
+      </div>
+      <div class="stat-value c-green" id="stat-today">—</div>
+      <div class="stat-change">New today</div>
+    </div>
+    <div class="stat">
+      <div class="stat-top">
+        <span class="stat-label">This Week</span>
+        <span class="stat-icon">📆</span>
+      </div>
+      <div class="stat-value c-purple" id="stat-week">—</div>
+      <div class="stat-change">Past 7 days</div>
+    </div>
+    <div class="stat">
+      <div class="stat-top">
+        <span class="stat-label">AI Status</span>
+        <span class="stat-icon">🤖</span>
+      </div>
+      <div class="stat-value c-green" style="font-size:18px; margin-top:14px;">● Online</div>
+      <div class="stat-change">Voice assistant active</div>
+    </div>
+  </div>
+
+  <!-- TABLE -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Patient Bookings</span>
+      <span class="pill" id="table-count">0 records</span>
+    </div>
+    <div id="table-container">
+      <div class="loading">
+        <div class="spinner"></div>
+        Loading appointments...
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast">✓ Data refreshed</div>
+
+<script>
+  let allData = [];
+
+  function getInitials(name) {
+    if (!name || name === '—') return '?';
+    return name.trim().split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+  }
+
+  function formatDate(raw) {
+    if (!raw) return '—';
+    try {
+      const d = new Date(raw + 'Z');
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+        + ' ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    } catch { return raw; }
+  }
+
+  function isToday(raw) {
+    if (!raw) return false;
+    return raw.startsWith(new Date().toISOString().slice(0, 10));
+  }
+
+  function isThisWeek(raw) {
+    if (!raw) return false;
+    const d = new Date(raw + 'Z');
+    const now = new Date();
+    return (now - d) < 7 * 24 * 60 * 60 * 1000;
+  }
+
+  function renderTable(data) {
+    const container = document.getElementById('table-container');
+    if (!data.length) {
+      container.innerHTML = `
+        <div class="empty">
+          <div class="empty-icon">🦷</div>
+          <div class="empty-title">No appointments yet</div>
+          <div class="empty-sub">Appointments will appear here after patients call the AI receptionist</div>
+        </div>`;
+      return;
+    }
+
+    const rows = data.map((r, i) => {
+      const today = isToday(r.booked_at);
+      const initials = getInitials(r.patient_name);
+      const id = r.appointment_id || '—';
+      return `
+        <tr>
+          <td><span class="row-num">${i + 1}</span></td>
+          <td><span class="id-chip">${id}</span></td>
+          <td>
+            <div class="patient-cell">
+              <div class="avatar">${initials}</div>
+              <div>
+                <div class="patient-name">${r.patient_name || '—'}</div>
+                <div class="phone-text">${r.phone || '—'}</div>
+              </div>
+            </div>
+          </td>
+          <td><span class="time-chip">🗓 ${r.appointment_time || '—'}</span></td>
+          <td><span class="badge ${today ? 'badge-new' : 'badge-old'}">${today ? 'Today' : 'Booked'}</span></td>
+          <td><span class="date-text">${formatDate(r.booked_at)}</span></td>
+        </tr>`;
+    }).join('');
+
+    container.innerHTML = `
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Appointment ID</th>
+            <th>Patient</th>
+            <th>Appointment Time</th>
+            <th>Status</th>
+            <th>Booked At</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
+
+  function filterTable() {
+    const q = document.getElementById('search').value.toLowerCase();
+    const filtered = allData.filter(r =>
+      (r.patient_name || '').toLowerCase().includes(q) ||
+      (r.appointment_id || '').toLowerCase().includes(q) ||
+      (r.appointment_time || '').toLowerCase().includes(q) ||
+      (r.phone || '').toLowerCase().includes(q)
+    );
+    renderTable(filtered);
+    document.getElementById('table-count').textContent = `${filtered.length} records`;
+  }
+
+  async function loadData() {
+    try {
+      const res = await fetch('/appointments');
+      const json = await res.json();
+      allData = json.appointments || [];
+
+      const today = allData.filter(r => isToday(r.booked_at)).length;
+      const week = allData.filter(r => isThisWeek(r.booked_at)).length;
+
+      document.getElementById('stat-total').textContent = allData.length;
+      document.getElementById('stat-today').textContent = today;
+      document.getElementById('stat-week').textContent = week;
+      document.getElementById('table-count').textContent = `${allData.length} records`;
+      document.getElementById('last-updated').textContent =
+        'Last updated: ' + new Date().toLocaleTimeString();
+
+      renderTable(allData);
+
+      const toast = document.getElementById('toast');
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 2000);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  loadData();
+  setInterval(loadData, 30000);
+</script>
+</body>
+</html>
