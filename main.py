@@ -723,7 +723,8 @@ async def voice_ai_webhook(request: Request):
                     print(f"✅ Booking: {name} | {ph} | {appt_time}")
                     success, appt_id = book_appointment_on_calendar(name, ph, appt_time)
                     if success:
-                        result_msg = f"Appointment booked! The appointment ID is {appt_id}. Tell the patient: your appointment is confirmed for {appt_time}. Your appointment ID is {appt_id} — please save this, you will need it to cancel or reschedule."
+                        spelled = spell_id(appt_id)
+                        result_msg = f"Appointment booked! Tell the patient: Your appointment is confirmed for {appt_time}. Your appointment ID is {spelled}. Please write it down — you will need this ID to cancel or reschedule. Without this ID we cannot make changes to your booking."
                     else:
                         result_msg = "Appointment saved. Tell the customer they are all set."
                     tool_results.append({"toolCallId": tool_call_id, "result": result_msg})
