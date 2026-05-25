@@ -131,6 +131,40 @@
     .toast { position: fixed; bottom: 24px; right: 24px; background: var(--surface); border: 1px solid var(--green); color: var(--green); padding: 12px 20px; border-radius: 10px; font-size: 13px; font-weight: 500; display: none; align-items: center; gap: 8px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); z-index: 999; }
     .toast.show { display: flex; }
 
+    /* SCHEDULE */
+    .schedule-grid { display: grid; grid-template-columns: 380px 1fr; gap: 24px; align-items: start; }
+    .form-card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 24px; }
+    .form-title { font-size: 14px; font-weight: 700; margin-bottom: 20px; display: flex; align-items: center; gap: 8px; }
+    .form-group { margin-bottom: 16px; }
+    .form-label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 7px; display: block; }
+    .form-input {
+      width: 100%; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 9px 13px; color: var(--text);
+      font-size: 13px; font-family: 'Inter', sans-serif; outline: none;
+    }
+    .form-input:focus { border-color: var(--accent); }
+    .form-input::placeholder { color: var(--muted); }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .toggle-row { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+    .toggle-label { font-size: 13px; color: var(--muted); }
+    .toggle { width: 36px; height: 20px; border-radius: 10px; background: var(--border); border: none; cursor: pointer; position: relative; transition: background 0.2s; flex-shrink: 0; }
+    .toggle.on { background: var(--accent); }
+    .toggle::after { content: ''; position: absolute; width: 14px; height: 14px; border-radius: 50%; background: #fff; top: 3px; left: 3px; transition: left 0.2s; }
+    .toggle.on::after { left: 19px; }
+    .time-fields { transition: opacity 0.2s; }
+    .time-fields.hidden { opacity: 0.3; pointer-events: none; }
+    .block-list { display: flex; flex-direction: column; gap: 10px; margin-top: 0; }
+    .block-item { background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; transition: border-color 0.15s; }
+    .block-item:hover { border-color: var(--border2); }
+    .block-info { flex: 1; min-width: 0; }
+    .block-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+    .block-time { font-size: 12px; color: var(--muted); }
+    .block-badge { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.2); color: var(--red); font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 6px; flex-shrink: 0; }
+    .block-badge.all-day { background: rgba(234,179,8,0.1); border-color: rgba(234,179,8,0.2); color: var(--yellow); }
+    .delete-btn { width: 30px; height: 30px; border-radius: 8px; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.2); color: var(--red); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 14px; transition: all 0.15s; flex-shrink: 0; }
+    .delete-btn:hover { background: rgba(239,68,68,0.2); }
+    .blocks-empty { text-align: center; padding: 48px 20px; color: var(--muted); font-size: 13px; }
+
     /* CHAT */
     .chat-wrap { display: flex; flex-direction: column; height: calc(100vh - 110px); }
     .chat-window {
@@ -189,6 +223,9 @@
   <div class="nav-label">Menu</div>
   <button class="nav-item active" id="nav-appointments" onclick="showPage('appointments')">
     <span class="nav-icon">📋</span> Appointments
+  </button>
+  <button class="nav-item" id="nav-schedule" onclick="showPage('schedule')">
+    <span class="nav-icon">🗓</span> Schedule
   </button>
   <button class="nav-item" id="nav-chat" onclick="showPage('chat')">
     <span class="nav-icon">💬</span> Chat
@@ -258,6 +295,68 @@
     </div>
   </div>
 
+  <!-- SCHEDULE PAGE -->
+  <div id="page-schedule" style="display:none">
+    <div class="topbar">
+      <div>
+        <div class="page-title">Schedule</div>
+        <div class="page-sub">Block hours or days — Kiya will mark them as unavailable</div>
+      </div>
+      <button class="btn btn-ghost" onclick="loadBlocks()">↻ Refresh</button>
+    </div>
+
+    <div class="schedule-grid">
+      <!-- Block form -->
+      <div class="form-card">
+        <div class="form-title">🔒 Block Time</div>
+
+        <div class="form-group">
+          <label class="form-label">Label / Reason</label>
+          <input class="form-input" id="block-label" type="text" placeholder="e.g. Holiday, Staff Training, Lunch Break" />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Date</label>
+          <input class="form-input" id="block-date" type="date" />
+        </div>
+
+        <div class="toggle-row">
+          <button class="toggle" id="allday-toggle" onclick="toggleAllDay()"></button>
+          <span class="toggle-label">Block entire day</span>
+        </div>
+
+        <div class="time-fields" id="time-fields">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">From</label>
+              <input class="form-input" id="block-start" type="time" value="09:00" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">To</label>
+              <input class="form-input" id="block-end" type="time" value="17:00" />
+            </div>
+          </div>
+        </div>
+
+        <button class="btn btn-primary" id="block-btn" onclick="createBlock()" style="width:100%;justify-content:center;margin-top:4px">
+          Block This Time
+        </button>
+        <div id="block-msg" style="font-size:12px;margin-top:10px;text-align:center;display:none"></div>
+      </div>
+
+      <!-- Existing blocks -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Blocked Times (Next 60 Days)</span>
+          <span class="pill" id="blocks-count">Loading...</span>
+        </div>
+        <div style="padding:20px" id="blocks-list">
+          <div class="blocks-empty">Loading calendar blocks...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- CHAT PAGE -->
   <div id="page-chat" style="display:none">
     <div class="topbar">
@@ -290,11 +389,120 @@
 <script>
   // ── PAGE SWITCHING ──
   function showPage(page) {
-    document.getElementById('page-appointments').style.display = page === 'appointments' ? 'block' : 'none';
-    document.getElementById('page-chat').style.display = page === 'chat' ? 'block' : 'none';
-    document.getElementById('nav-appointments').classList.toggle('active', page === 'appointments');
-    document.getElementById('nav-chat').classList.toggle('active', page === 'chat');
+    ['appointments','schedule','chat'].forEach(p => {
+      document.getElementById('page-' + p).style.display = p === page ? 'block' : 'none';
+      document.getElementById('nav-' + p).classList.toggle('active', p === page);
+    });
+    if (page === 'schedule') loadBlocks();
   }
+
+  // ── SCHEDULE ──
+  let allDayOn = false;
+
+  function toggleAllDay() {
+    allDayOn = !allDayOn;
+    document.getElementById('allday-toggle').classList.toggle('on', allDayOn);
+    document.getElementById('time-fields').classList.toggle('hidden', allDayOn);
+  }
+
+  function formatBlockTime(b) {
+    if (b.all_day) return b.start.slice(0, 10);
+    try {
+      const s = new Date(b.start);
+      const e = new Date(b.end);
+      const opts = { month: 'short', day: 'numeric', year: 'numeric' };
+      const tOpts = { hour: '2-digit', minute: '2-digit' };
+      return s.toLocaleDateString('en-US', opts) + '  ' +
+             s.toLocaleTimeString('en-US', tOpts) + ' → ' +
+             e.toLocaleTimeString('en-US', tOpts);
+    } catch { return b.start; }
+  }
+
+  async function loadBlocks() {
+    const listEl = document.getElementById('blocks-list');
+    const countEl = document.getElementById('blocks-count');
+    listEl.innerHTML = '<div class="blocks-empty">Loading...</div>';
+    try {
+      const res = await fetch('/api/admin/blocks');
+      const data = await res.json();
+      const blocks = data.blocks || [];
+      countEl.textContent = blocks.length + ' blocks';
+      if (!blocks.length) {
+        listEl.innerHTML = '<div class="blocks-empty">No blocked times. The calendar is fully open.</div>';
+        return;
+      }
+      listEl.innerHTML = '<div class="block-list">' + blocks.map(b => `
+        <div class="block-item" id="block-${b.id}">
+          <div class="block-info">
+            <div class="block-title">${b.title}</div>
+            <div class="block-time">${formatBlockTime(b)}</div>
+          </div>
+          <span class="block-badge ${b.all_day ? 'all-day' : ''}">${b.all_day ? 'All Day' : 'Hours'}</span>
+          <button class="delete-btn" onclick="deleteBlock('${b.id}')" title="Remove block">✕</button>
+        </div>
+      `).join('') + '</div>';
+    } catch(e) {
+      listEl.innerHTML = '<div class="blocks-empty">Failed to load calendar. Is the server running?</div>';
+    }
+  }
+
+  async function createBlock() {
+    const label = document.getElementById('block-label').value.trim() || 'Clinic Closed';
+    const date  = document.getElementById('block-date').value;
+    const start = document.getElementById('block-start').value;
+    const end   = document.getElementById('block-end').value;
+    const msg   = document.getElementById('block-msg');
+
+    if (!date) { showBlockMsg('Please select a date.', 'var(--red)'); return; }
+    if (!allDayOn && (!start || !end)) { showBlockMsg('Please set start and end time.', 'var(--red)'); return; }
+    if (!allDayOn && start >= end) { showBlockMsg('End time must be after start time.', 'var(--red)'); return; }
+
+    const btn = document.getElementById('block-btn');
+    btn.disabled = true; btn.textContent = 'Blocking...';
+
+    try {
+      const res = await fetch('/api/admin/block', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label, date, start_time: start, end_time: end, all_day: allDayOn })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        showBlockMsg('Blocked successfully!', 'var(--green)');
+        document.getElementById('block-label').value = '';
+        document.getElementById('block-date').value = '';
+        loadBlocks();
+      } else {
+        showBlockMsg('Error: ' + (data.error || 'Unknown error'), 'var(--red)');
+      }
+    } catch(e) {
+      showBlockMsg('Network error. Is the server running?', 'var(--red)');
+    }
+    btn.disabled = false; btn.textContent = 'Block This Time';
+  }
+
+  function showBlockMsg(text, color) {
+    const el = document.getElementById('block-msg');
+    el.textContent = text; el.style.color = color; el.style.display = 'block';
+    setTimeout(() => { el.style.display = 'none'; }, 4000);
+  }
+
+  async function deleteBlock(eventId) {
+    if (!confirm('Remove this block? Kiya will be able to book this time again.')) return;
+    try {
+      const res = await fetch('/api/admin/block/' + eventId, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.ok) {
+        document.getElementById('block-' + eventId)?.remove();
+        const remaining = document.querySelectorAll('.block-item').length;
+        document.getElementById('blocks-count').textContent = remaining + ' blocks';
+        if (!remaining) document.getElementById('blocks-list').innerHTML = '<div class="blocks-empty">No blocked times. The calendar is fully open.</div>';
+      }
+    } catch(e) { alert('Failed to delete. Try again.'); }
+  }
+
+  // Set today as default date
+  document.getElementById('block-date').value = new Date().toISOString().slice(0, 10);
 
   // ── APPOINTMENTS ──
   let allData = [];

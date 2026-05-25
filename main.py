@@ -13,7 +13,7 @@ import random
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import pytz
-import google.generativeai as genai
+from groq import Groq
 
 EAT = pytz.timezone("Africa/Addis_Ababa")
 
@@ -25,7 +25,7 @@ from googleapiclient.discovery import build
 
 load_dotenv()
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 app = FastAPI(title="AI Voice Assistant API")
 
@@ -33,72 +33,81 @@ app = FastAPI(title="AI Voice Assistant API")
 CREDENTIALS_FILE = "ai-customer-support-for-dental-97534c20c8ce.json"
 CALENDAR_ID = "gemechuhunduma20@gmail.com"
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
-BUSINESS_START = 8   # 8 AM default open; admin closes hours via Google Calendar
-BUSINESS_END = 20    # 8 PM default close
+BUSINESS_START = 0   # fully open 24/7; admin closes specific times via Google Calendar
+BUSINESS_END = 24
 
-GEMINI_TOOLS = genai.protos.Tool(function_declarations=[
-    genai.protos.FunctionDeclaration(
-        name="check_calendar",
-        description="Check if a specific day and time is available for booking. Always call this before booking to confirm the slot is free.",
-        parameters=genai.protos.Schema(
-            type=genai.protos.Type.OBJECT,
-            properties={
-                "requested_day": genai.protos.Schema(
-                    type=genai.protos.Type.STRING,
-                    description="Day the patient wants e.g. Monday, Saturday"
-                ),
-                "requested_time": genai.protos.Schema(
-                    type=genai.protos.Type.STRING,
-                    description="Time the patient wants e.g. 10:00 AM, 2:30 PM"
-                )
-            },
-            required=["requested_day", "requested_time"]
-        )
-    ),
-    genai.protos.FunctionDeclaration(
-        name="book_appointment",
-        description="Book a dental appointment for the patient.",
-        parameters=genai.protos.Schema(
-            type=genai.protos.Type.OBJECT,
-            properties={
-                "patient_name": genai.protos.Schema(type=genai.protos.Type.STRING),
-                "phone": genai.protos.Schema(type=genai.protos.Type.STRING),
-                "appointment_time": genai.protos.Schema(type=genai.protos.Type.STRING, description="e.g. Monday 10:00 AM")
-            },
-            required=["patient_name", "phone", "appointment_time"]
-        )
-    ),
-    genai.protos.FunctionDeclaration(
-        name="get_appointment",
-        description="Look up an existing appointment by ID.",
-        parameters=genai.protos.Schema(
-            type=genai.protos.Type.OBJECT,
-            properties={"appointment_id": genai.protos.Schema(type=genai.protos.Type.STRING)},
-            required=["appointment_id"]
-        )
-    ),
-    genai.protos.FunctionDeclaration(
-        name="cancel_appointment",
-        description="Cancel an existing appointment by ID.",
-        parameters=genai.protos.Schema(
-            type=genai.protos.Type.OBJECT,
-            properties={"appointment_id": genai.protos.Schema(type=genai.protos.Type.STRING)},
-            required=["appointment_id"]
-        )
-    ),
-    genai.protos.FunctionDeclaration(
-        name="reschedule_appointment",
-        description="Reschedule an appointment to a new time.",
-        parameters=genai.protos.Schema(
-            type=genai.protos.Type.OBJECT,
-            properties={
-                "appointment_id": genai.protos.Schema(type=genai.protos.Type.STRING),
-                "new_appointment_time": genai.protos.Schema(type=genai.protos.Type.STRING, description="e.g. Wednesday 2:00 PM")
-            },
-            required=["appointment_id", "new_appointment_time"]
-        )
-    )
-])
+GROQ_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "check_calendar",
+            "description": "Check calendar availability. Use with just a day to show open/closed hours for that day. Use with day AND time to verify one specific slot before booking.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "requested_day":  {"type": "string", "description": "Day to check e.g. Monday, today, tomorrow, Saturday"},
+                    "requested_time": {"type": "string", "description": "Specific time to check e.g. 10:00 AM. Omit to get a full open/closed summary for the day."}
+                },
+                "required": ["requested_day"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "book_appointment",
+            "description": "Book a dental appointment for the patient.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "patient_name":     {"type": "string"},
+                    "phone":            {"type": "string"},
+                    "appointment_time": {"type": "string", "description": "e.g. Monday 10:00 AM"}
+                },
+                "required": ["patient_name", "phone", "appointment_time"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_appointment",
+            "description": "Look up an existing appointment by ID.",
+            "parameters": {
+                "type": "object",
+                "properties": {"appointment_id": {"type": "string"}},
+                "required": ["appointment_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "cancel_appointment",
+            "description": "Cancel an existing appointment by ID.",
+            "parameters": {
+                "type": "object",
+                "properties": {"appointment_id": {"type": "string"}},
+                "required": ["appointment_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "reschedule_appointment",
+            "description": "Reschedule an appointment to a new time.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "appointment_id":       {"type": "string"},
+                    "new_appointment_time": {"type": "string", "description": "e.g. Wednesday 2:00 PM"}
+                },
+                "required": ["appointment_id", "new_appointment_time"]
+            }
+        }
+    }
+]
 
 # --- Google Calendar Setup ---
 def get_calendar_service():
@@ -148,6 +157,15 @@ def handle_tool_call(name: str, args: dict) -> str:
     if name == "check_calendar":
         return get_available_slots(args.get("requested_day"), args.get("requested_time"))
     elif name == "book_appointment":
+        # Guard: don't double-book same patient + time
+        conn = sqlite3.connect("appointments.db")
+        existing = conn.execute(
+            "SELECT appointment_id FROM appointments WHERE patient_name=? AND appointment_time=?",
+            (args["patient_name"], args["appointment_time"])
+        ).fetchone()
+        conn.close()
+        if existing:
+            return f"This appointment already exists. ID: {spell_id(existing[0])}. No new booking was made."
         success, appt_id = book_appointment_on_calendar(
             args["patient_name"], args["phone"], args["appointment_time"]
         )
@@ -246,9 +264,15 @@ def get_available_slots(requested_day: str = None, requested_time: str = None):
                 target += timedelta(weeks=1)
             return target
 
-        # Both day + time given — check that exact slot
+        # Both day + time — check that exact slot
         if requested_day and requested_time:
-            target = resolve_day(requested_day)
+            dn = requested_day.lower()
+            if dn in ("today",):
+                target = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            elif dn in ("tomorrow",):
+                target = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            else:
+                target = resolve_day(requested_day)
             if target is None:
                 return f"I don't recognise '{requested_day}'. Please use a day name like Monday."
             try:
@@ -257,16 +281,39 @@ def get_available_slots(requested_day: str = None, requested_time: str = None):
                 )
             except ValueError:
                 return f"I couldn't understand the time '{requested_time}'. Please use a format like 10:00 AM."
-
             if slot_start <= now:
                 return "That time has already passed. Please choose a future time."
-            if not (BUSINESS_START <= slot_start.hour < BUSINESS_END):
-                return f"Our hours are {BUSINESS_START}:00 AM to {BUSINESS_END % 12 or BUSINESS_END}:00 PM. Please pick a time within those hours."
             if slot_is_busy(slot_start):
                 return f"Sorry, {requested_day} at {requested_time} is already reserved. Please choose a different time."
             return f"{requested_day} at {requested_time} is available."
 
-        return "Please tell me which day and time you'd prefer."
+        # Day only — return open and blocked hours summary
+        if requested_day:
+            dn = requested_day.lower()
+            if dn == "today":
+                target = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                label = "Today"
+            elif dn == "tomorrow":
+                target = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+                label = "Tomorrow"
+            else:
+                target = resolve_day(requested_day)
+                label = requested_day.capitalize()
+            if target is None:
+                return f"I don't recognise '{requested_day}'."
+
+            closed_slots = []
+            cur = target.replace(hour=0, minute=0, second=0, microsecond=0)
+            while cur < target.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1):
+                if cur > now and slot_is_busy(cur):
+                    closed_slots.append(cur.strftime("%I:%M %p").lstrip("0"))
+                cur += timedelta(hours=1)
+
+            if not closed_slots:
+                return f"{label} is fully open — no reserved or blocked times."
+            return f"{label} has reserved/blocked times: {', '.join(closed_slots)}. All other times are open."
+
+        return "Which day would you like to check?"
 
     except Exception as e:
         print(f"Calendar error: {e}")
@@ -474,6 +521,75 @@ async def list_appointments():
     ]
     return {"total_appointments": len(appointments), "appointments": appointments}
 
+# ── ADMIN SCHEDULE / CALENDAR BLOCKS ──────────────────────────────────────────
+
+@app.get("/api/admin/blocks")
+async def get_blocks():
+    try:
+        service = get_calendar_service()
+        now_utc = datetime.utcnow().isoformat() + "Z"
+        far_future = (datetime.utcnow() + timedelta(days=60)).isoformat() + "Z"
+        result = service.events().list(
+            calendarId=CALENDAR_ID,
+            timeMin=now_utc,
+            timeMax=far_future,
+            singleEvents=True,
+            orderBy="startTime"
+        ).execute()
+        blocks = []
+        for e in result.get("items", []):
+            start = e.get("start", {})
+            end   = e.get("end", {})
+            blocks.append({
+                "id":       e["id"],
+                "title":    e.get("summary", "Blocked"),
+                "start":    start.get("dateTime", start.get("date", "")),
+                "end":      end.get("dateTime",   end.get("date", "")),
+                "all_day":  "date" in start
+            })
+        return {"blocks": blocks}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.post("/api/admin/block")
+async def create_block(request: Request):
+    try:
+        body = await request.json()
+        label      = body.get("label", "Clinic Closed")
+        date_str   = body.get("date")        # "YYYY-MM-DD"
+        start_time = body.get("start_time")  # "HH:MM" 24h, or None for all-day
+        end_time   = body.get("end_time")    # "HH:MM" 24h, or None for all-day
+        all_day    = body.get("all_day", False)
+
+        service = get_calendar_service()
+
+        if all_day or not start_time or not end_time:
+            event = {
+                "summary": f"🔒 {label}",
+                "start": {"date": date_str},
+                "end":   {"date": date_str},
+            }
+        else:
+            event = {
+                "summary": f"🔒 {label}",
+                "start": {"dateTime": f"{date_str}T{start_time}:00", "timeZone": "Africa/Addis_Ababa"},
+                "end":   {"dateTime": f"{date_str}T{end_time}:00",   "timeZone": "Africa/Addis_Ababa"},
+            }
+
+        created = service.events().insert(calendarId=CALENDAR_ID, body=event).execute()
+        return {"ok": True, "event_id": created["id"]}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+@app.delete("/api/admin/block/{event_id}")
+async def delete_block(event_id: str):
+    try:
+        service = get_calendar_service()
+        service.events().delete(calendarId=CALENDAR_ID, eventId=event_id).execute()
+        return {"ok": True}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
 @app.post("/api/chat")
 async def chat_endpoint(request: Request):
     try:
@@ -481,46 +597,49 @@ async def chat_endpoint(request: Request):
         messages = body.get("messages", [])
         system_prompt = open("prompts/system_prompt.txt", encoding="utf-8").read()
 
-        model = genai.GenerativeModel(
-            model_name="gemini-2.5-flash",
-            system_instruction=system_prompt,
-            tools=[GEMINI_TOOLS]
-        )
-
-        # Build history from all but last message
-        history = []
-        for msg in messages[:-1]:
-            role = "model" if msg["role"] == "assistant" else "user"
-            history.append({"role": role, "parts": [{"text": msg["content"]}]})
-
-        chat = model.start_chat(history=history)
-        user_msg = messages[-1]["content"] if messages else ""
+        # Build message list for Groq
+        groq_messages = [{"role": "system", "content": system_prompt}]
+        for msg in messages:
+            role = "assistant" if msg["role"] == "assistant" else "user"
+            groq_messages.append({"role": role, "content": msg["content"]})
 
         # Agentic loop — handle tool calls until final text reply
-        fn_response = None
         for _ in range(6):
-            if fn_response is None:
-                response = chat.send_message(user_msg)
-            else:
-                response = chat.send_message([
-                    genai.protos.Part(
-                        function_response=genai.protos.FunctionResponse(
-                            name=fn_response["name"],
-                            response={"result": fn_response["result"]}
-                        )
-                    )
-                ])
-
-            fn_part = next(
-                (p.function_call for p in response.parts if hasattr(p, "function_call") and p.function_call.name),
-                None
+            response = groq_client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=groq_messages,
+                tools=GROQ_TOOLS,
+                tool_choice="auto",
+                max_tokens=1024
             )
 
-            if fn_part:
-                fn_result = handle_tool_call(fn_part.name, dict(fn_part.args))
-                fn_response = {"name": fn_part.name, "result": fn_result}
+            msg = response.choices[0].message
+
+            if msg.tool_calls:
+                # Add assistant message with tool calls to history
+                groq_messages.append({
+                    "role": "assistant",
+                    "content": msg.content or "",
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {"name": tc.function.name, "arguments": tc.function.arguments}
+                        }
+                        for tc in msg.tool_calls
+                    ]
+                })
+                # Execute each tool and add results
+                for tc in msg.tool_calls:
+                    fn_args = json.loads(tc.function.arguments)
+                    fn_result = handle_tool_call(tc.function.name, fn_args)
+                    groq_messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": fn_result
+                    })
             else:
-                reply = response.text
+                reply = msg.content or ""
                 messages.append({"role": "assistant", "content": reply})
                 return {"reply": reply, "messages": messages}
 
