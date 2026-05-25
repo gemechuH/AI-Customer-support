@@ -103,6 +103,60 @@
     .demo-send { width: 30px; height: 30px; border-radius: 8px; background: #2563eb; border: none; display: flex; align-items: center; justify-content: center; cursor: default; }
     .demo-send svg { width: 13px; height: 13px; fill: #fff; }
 
+    /* ── DEMO VOICE SCENE ── */
+    #scene-chat { transition: opacity 0.4s; }
+    .demo-voice-scene {
+      display: none; opacity: 0; transition: opacity 0.4s;
+      padding: 20px 16px 16px; min-height: 268px;
+      flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+    }
+    .dv-hint { font-size: 11px; color: #4a5a75; text-align: center; letter-spacing: 0.3px; }
+    .dv-btn-area { position: relative; width: 100%; display: flex; justify-content: center; padding: 8px 0 54px; }
+    .dv-btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: #25D366; color: #fff; border: none; border-radius: 11px;
+      padding: 13px 22px; font-size: 13px; font-weight: 700;
+      font-family: 'Inter', sans-serif; cursor: default; position: relative; overflow: hidden;
+      box-shadow: 0 4px 18px rgba(37,211,102,0.45); transition: transform 0.2s, background 0.3s;
+    }
+    .dv-btn.clicked { transform: scale(0.94); }
+    .dv-btn svg { width: 14px; height: 14px; fill: #fff; flex-shrink: 0; }
+    .dv-ripple {
+      position: absolute; border-radius: 50%;
+      background: rgba(255,255,255,0.45); pointer-events: none;
+      width: 0; height: 0; top: 50%; left: 50%;
+      transform: translate(-50%,-50%);
+      animation: dvRipple 0.55s ease-out forwards;
+    }
+    @keyframes dvRipple { to { width: 190px; height: 190px; opacity: 0; } }
+    .dv-cursor {
+      position: absolute; bottom: 6px; right: 18px;
+      pointer-events: none; opacity: 0;
+      transition: transform 0.75s cubic-bezier(0.25,0.46,0.45,0.94), opacity 0.3s;
+      filter: drop-shadow(1px 2px 4px rgba(0,0,0,0.6));
+    }
+    .dv-cursor svg { width: 22px; height: 26px; }
+    .dv-waves-area {
+      display: flex; flex-direction: column; align-items: center; gap: 8px;
+      opacity: 0; transition: opacity 0.5s;
+    }
+    .dv-waves-area.visible { opacity: 1; }
+    .dv-waves { display: flex; align-items: center; gap: 5px; height: 44px; }
+    .dv-waves span { display: block; width: 5px; border-radius: 3px; background: #22c55e; animation: dvWave 1.1s ease-in-out infinite; }
+    .dv-waves span:nth-child(1) { height: 14px; animation-delay: 0s; }
+    .dv-waves span:nth-child(2) { height: 28px; animation-delay: 0.15s; }
+    .dv-waves span:nth-child(3) { height: 42px; animation-delay: 0.3s; }
+    .dv-waves span:nth-child(4) { height: 28px; animation-delay: 0.45s; }
+    .dv-waves span:nth-child(5) { height: 14px; animation-delay: 0.6s; }
+    @keyframes dvWave { 0%,100%{transform:scaleY(0.35);opacity:0.4;} 50%{transform:scaleY(1);opacity:1;} }
+    .dv-calling-label { font-size: 12px; font-weight: 600; color: #22c55e; }
+    .demo-scene-label {
+      font-size: 10px; font-weight: 600; letter-spacing: 0.8px; text-transform: uppercase;
+      padding: 4px 10px; border-radius: 20px; margin-bottom: -6px;
+    }
+    .demo-scene-label.chat { background: rgba(59,130,246,0.12); color: #60a5fa; }
+    .demo-scene-label.voice { background: rgba(37,211,102,0.12); color: #4ade80; }
+
     /* ── STATS BAR ── */
     .stats-bar { background: linear-gradient(90deg, #1d4ed8 0%, #2563eb 50%, #0369a1 100%); color: #fff; display: flex; justify-content: center; gap: 0; flex-wrap: wrap; }
     .stat-item { text-align: center; padding: 28px 52px; border-right: 1px solid rgba(255,255,255,0.15); }
@@ -335,24 +389,54 @@
     <!-- Animated demo card -->
     <div class="hero-right">
       <div class="demo-card">
-        <div class="demo-top">
-          <div class="demo-av">K</div>
+        <div class="demo-top" id="demo-top-header">
+          <div class="demo-av" id="demo-top-av">K</div>
           <div>
-            <div class="demo-name">Kiya — AI Receptionist</div>
-            <div class="demo-status">● Online now</div>
+            <div class="demo-name" id="demo-top-name">Kiya — AI Receptionist</div>
+            <div class="demo-status" id="demo-top-status">● Online now</div>
           </div>
         </div>
-        <div class="demo-msgs" id="demo-msgs">
-          <div class="dm user" id="d1"><div class="dm-av">You</div><div class="dm-bub">Hi, I want to book an appointment</div></div>
-          <div class="dm ai"  id="d2"><div class="dm-av">K</div><div class="dm-bub">I'd be happy to help! What's your name and phone number?</div></div>
-          <div class="dm user" id="d3"><div class="dm-av">You</div><div class="dm-bub">Sara Tesfaye, 0911-234-567</div></div>
-          <div class="dm ai"  id="d4"><div class="dm-av">K</div><div class="dm-bub">Checking availability for this week...</div></div>
-          <div class="dm ai dm-confirm" id="d5"><div class="dm-av">K</div><div class="dm-bub">Booked! Your appointment ID is <strong>KY47</strong>. See you Saturday at 10:00 AM!</div></div>
+
+        <!-- Chat scene -->
+        <div id="scene-chat">
+          <div style="padding:10px 14px 4px">
+            <span class="demo-scene-label chat">💬 Chat Demo</span>
+          </div>
+          <div class="demo-msgs" id="demo-msgs">
+            <div class="dm user" id="d1"><div class="dm-av">You</div><div class="dm-bub">Hi, I want to book an appointment</div></div>
+            <div class="dm ai"  id="d2"><div class="dm-av">K</div><div class="dm-bub">I'd be happy to help! What's your name and phone number?</div></div>
+            <div class="dm user" id="d3"><div class="dm-av">You</div><div class="dm-bub">Sara Tesfaye, 0911-234-567</div></div>
+            <div class="dm ai"  id="d4"><div class="dm-av">K</div><div class="dm-bub">Checking availability for this week...</div></div>
+            <div class="dm ai dm-confirm" id="d5"><div class="dm-av">K</div><div class="dm-bub">Booked! Your ID is <strong>KY47</strong>. See you Saturday at 10:00 AM!</div></div>
+          </div>
+          <div class="demo-input">
+            <div class="demo-input-bar">Type a message...</div>
+            <div class="demo-send"><svg viewBox="0 0 20 20"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"/></svg></div>
+          </div>
         </div>
-        <div class="demo-input">
-          <div class="demo-input-bar">Type a message...</div>
-          <div class="demo-send"><svg viewBox="0 0 20 20"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"/></svg></div>
+
+        <!-- Voice scene -->
+        <div class="demo-voice-scene" id="scene-voice">
+          <span class="demo-scene-label voice">📞 Voice Call Demo</span>
+          <div class="dv-hint">Tap to book by voice — Kiya answers live</div>
+          <div class="dv-btn-area">
+            <button class="dv-btn" id="dv-btn">
+              <svg viewBox="0 0 20 20"><path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z"/></svg>
+              Book by Voice Call
+            </button>
+            <!-- Animated cursor -->
+            <div class="dv-cursor" id="dv-cursor">
+              <svg viewBox="0 0 16 20" xmlns="http://www.w3.org/2000/svg">
+                <path d="M1 1 L1 17 L5 13 L7.5 19 L9.5 18 L7 12 L12 12 Z" fill="white" stroke="#1a2540" stroke-width="1.2" stroke-linejoin="round"/>
+              </svg>
+            </div>
+          </div>
+          <div class="dv-waves-area" id="dv-waves-area">
+            <div class="dv-waves"><span></span><span></span><span></span><span></span><span></span></div>
+            <div class="dv-calling-label">Kiya is speaking...</div>
+          </div>
         </div>
+
       </div>
     </div>
   </div>
@@ -665,22 +749,116 @@
 </script>
 
 <script>
-  // ── DEMO CARD ANIMATION ──
+  // ── DEMO CARD ANIMATION (cycles: chat → voice → chat → ...) ──
   const demoIds = ["d1","d2","d3","d4","d5"];
   let demoStep = 0;
-  function runDemo() {
-    demoIds.forEach(id => { const el = document.getElementById(id); if(el) { el.classList.remove("show"); } });
+
+  const PHONE_SVG = `<svg viewBox="0 0 20 20" style="width:14px;height:14px;fill:#fff;flex-shrink:0"><path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z"/></svg>`;
+
+  function crossfade(fromId, toId, onDone) {
+    const fromEl = document.getElementById(fromId);
+    const toEl   = document.getElementById(toId);
+    fromEl.style.opacity = '0';
+    setTimeout(() => {
+      fromEl.style.display = 'none';
+      toEl.style.display   = 'flex';
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        toEl.style.opacity = '1';
+        if (onDone) onDone();
+      }));
+    }, 420);
+  }
+
+  function runChatScene(onDone) {
+    // Reset messages
+    demoIds.forEach(id => { const el = document.getElementById(id); if (el) el.classList.remove('show'); });
     demoStep = 0;
+    // Reset header
+    document.getElementById('demo-top-av').style.background = 'linear-gradient(135deg,#3b82f6,#6366f1)';
+    document.getElementById('demo-top-name').textContent  = 'Kiya — AI Receptionist';
+    document.getElementById('demo-top-status').textContent = '● Online now';
+    document.getElementById('demo-top-status').style.color = '#22c55e';
+
     function showNext() {
-      if (demoStep >= demoIds.length) { setTimeout(runDemo, 3000); return; }
+      if (demoStep >= demoIds.length) { if (onDone) setTimeout(onDone, 1800); return; }
       const el = document.getElementById(demoIds[demoStep]);
-      if (el) el.classList.add("show");
+      if (el) el.classList.add('show');
       demoStep++;
       setTimeout(showNext, demoStep === 4 ? 1800 : 1200);
     }
-    setTimeout(showNext, 400);
+    setTimeout(showNext, 500);
   }
-  runDemo();
+
+  function runVoiceScene(onDone) {
+    const cursor    = document.getElementById('dv-cursor');
+    const btn       = document.getElementById('dv-btn');
+    const wavesArea = document.getElementById('dv-waves-area');
+
+    // Reset state
+    cursor.style.opacity   = '0';
+    cursor.style.transform = 'translate(0,0)';
+    wavesArea.classList.remove('visible');
+    btn.classList.remove('clicked');
+    btn.style.background = '#25D366';
+    btn.innerHTML = PHONE_SVG + ' Book by Voice Call';
+
+    // Update header to voice style
+    document.getElementById('demo-top-av').style.background = 'linear-gradient(135deg,#22c55e,#16a34a)';
+    document.getElementById('demo-top-name').textContent  = 'Kiya — Voice Call';
+    document.getElementById('demo-top-status').textContent = '● Ready';
+    document.getElementById('demo-top-status').style.color = '#22c55e';
+
+    // Step 1: cursor fades in at resting spot
+    setTimeout(() => { cursor.style.opacity = '1'; }, 700);
+
+    // Step 2: cursor glides toward button center
+    setTimeout(() => { cursor.style.transform = 'translate(-86px, -50px)'; }, 1400);
+
+    // Step 3: click — ripple + button scale
+    setTimeout(() => {
+      btn.classList.add('clicked');
+      cursor.style.opacity = '0';
+      const ripple = document.createElement('span');
+      ripple.className = 'dv-ripple';
+      btn.appendChild(ripple);
+      setTimeout(() => { if (ripple.parentNode) ripple.remove(); }, 600);
+    }, 2300);
+
+    // Step 4: button shows "Connected ✓" + waves appear
+    setTimeout(() => {
+      btn.style.background = '#16a34a';
+      btn.innerHTML = PHONE_SVG + ' Connected ✓';
+      document.getElementById('demo-top-status').textContent = '● In Call';
+      wavesArea.classList.add('visible');
+    }, 2650);
+
+    // Step 5: end demo scene after 4.5s of waves
+    setTimeout(() => { if (onDone) onDone(); }, 7200);
+  }
+
+  function startLoop() {
+    // Ensure chat scene visible first
+    const chatEl  = document.getElementById('scene-chat');
+    const voiceEl = document.getElementById('scene-voice');
+    chatEl.style.display   = '';
+    chatEl.style.opacity   = '1';
+    voiceEl.style.display  = 'none';
+    voiceEl.style.opacity  = '0';
+
+    runChatScene(() => {
+      // fade to voice
+      crossfade('scene-chat', 'scene-voice', () => {
+        runVoiceScene(() => {
+          // fade back to chat
+          crossfade('scene-voice', 'scene-chat', () => {
+            startLoop();
+          });
+        });
+      });
+    });
+  }
+
+  startLoop();
 
   // ── CHAT ──
   let chatHistory = [];
