@@ -12,6 +12,9 @@ import sqlite3
 import random
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+import pytz
+
+EAT = pytz.timezone("Africa/Addis_Ababa")
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
