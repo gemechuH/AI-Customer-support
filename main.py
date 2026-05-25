@@ -13,12 +13,19 @@ import random
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import pytz
+import google.generativeai as genai
 
 EAT = pytz.timezone("Africa/Addis_Ababa")
+
+def now_eat():
+    return datetime.now(EAT).replace(tzinfo=None)
+
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
 load_dotenv()
+
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 app = FastAPI(title="AI Voice Assistant API")
 
@@ -26,8 +33,67 @@ app = FastAPI(title="AI Voice Assistant API")
 CREDENTIALS_FILE = "ai-customer-support-for-dental-97534c20c8ce.json"
 CALENDAR_ID = "gemechuhunduma20@gmail.com"
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
-BUSINESS_START = 9   # 9 AM
-BUSINESS_END = 17    # 5 PM
+BUSINESS_START = 0   # midnight — calendar is the only gate
+BUSINESS_END = 24
+
+GEMINI_TOOLS = genai.protos.Tool(function_declarations=[
+    genai.protos.FunctionDeclaration(
+        name="check_calendar",
+        description="Check available appointment slots. Use when patient asks about availability or wants to book.",
+        parameters=genai.protos.Schema(
+            type=genai.protos.Type.OBJECT,
+            properties={
+                "requested_day": genai.protos.Schema(
+                    type=genai.protos.Type.STRING,
+                    description="Day to check e.g. Monday. Omit to see all slots this week."
+                )
+            }
+        )
+    ),
+    genai.protos.FunctionDeclaration(
+        name="book_appointment",
+        description="Book a dental appointment for the patient.",
+        parameters=genai.protos.Schema(
+            type=genai.protos.Type.OBJECT,
+            properties={
+                "patient_name": genai.protos.Schema(type=genai.protos.Type.STRING),
+                "phone": genai.protos.Schema(type=genai.protos.Type.STRING),
+                "appointment_time": genai.protos.Schema(type=genai.protos.Type.STRING, description="e.g. Monday 10:00 AM")
+            },
+            required=["patient_name", "phone", "appointment_time"]
+        )
+    ),
+    genai.protos.FunctionDeclaration(
+        name="get_appointment",
+        description="Look up an existing appointment by ID.",
+        parameters=genai.protos.Schema(
+            type=genai.protos.Type.OBJECT,
+            properties={"appointment_id": genai.protos.Schema(type=genai.protos.Type.STRING)},
+            required=["appointment_id"]
+        )
+    ),
+    genai.protos.FunctionDeclaration(
+        name="cancel_appointment",
+        description="Cancel an existing appointment by ID.",
+        parameters=genai.protos.Schema(
+            type=genai.protos.Type.OBJECT,
+            properties={"appointment_id": genai.protos.Schema(type=genai.protos.Type.STRING)},
+            required=["appointment_id"]
+        )
+    ),
+    genai.protos.FunctionDeclaration(
+        name="reschedule_appointment",
+        description="Reschedule an appointment to a new time.",
+        parameters=genai.protos.Schema(
+            type=genai.protos.Type.OBJECT,
+            properties={
+                "appointment_id": genai.protos.Schema(type=genai.protos.Type.STRING),
+                "new_appointment_time": genai.protos.Schema(type=genai.protos.Type.STRING, description="e.g. Wednesday 2:00 PM")
+            },
+            required=["appointment_id", "new_appointment_time"]
+        )
+    )
+])
 
 # --- Google Calendar Setup ---
 def get_calendar_service():
@@ -73,20 +139,62 @@ def generate_appointment_id():
 def spell_id(appt_id: str) -> str:
     return " - ".join(list(appt_id))
 
+def handle_tool_call(name: str, args: dict) -> str:
+    if name == "check_calendar":
+        return get_available_slots(args.get("requested_day"))
+    elif name == "book_appointment":
+        success, appt_id = book_appointment_on_calendar(
+            args["patient_name"], args["phone"], args["appointment_time"]
+        )
+        if success:
+            spelled = spell_id(appt_id)
+            return f"Booked. Appointment ID: {spelled}. Patient must save this ID to cancel or reschedule."
+        return "Booking failed. Please try again."
+    elif name == "get_appointment":
+        found, pname, appt_time = get_patient_appointment(args["appointment_id"])
+        if found:
+            return f"Found: {pname} is booked for {appt_time}."
+        return "No appointment found for that ID."
+    elif name == "cancel_appointment":
+        success, appt_time = cancel_appointment_from_calendar(args["appointment_id"])
+        if success:
+            return f"Appointment on {appt_time} has been cancelled."
+        return "Could not find an appointment with that ID."
+    elif name == "reschedule_appointment":
+        success, old_time = reschedule_appointment(
+            args["appointment_id"], args["new_appointment_time"]
+        )
+        if success:
+            return f"Rescheduled from {old_time} to {args['new_appointment_time']}."
+        return "Could not find an appointment with that ID."
+    return "Unknown tool."
+
 init_db()
 
 # --- Get busy times from Google Calendar ---
 def fetch_busy_times():
     service = get_calendar_service()
-    now = datetime.utcnow()
-    week_later = now + timedelta(days=7)
+    now_utc = datetime.utcnow()
+    week_later_utc = now_utc + timedelta(days=7)
     body = {
-        "timeMin": now.isoformat() + "Z",
-        "timeMax": week_later.isoformat() + "Z",
+        "timeMin": now_utc.isoformat() + "Z",
+        "timeMax": week_later_utc.isoformat() + "Z",
         "items": [{"id": CALENDAR_ID}]
     }
     result = service.freebusy().query(body=body).execute()
-    return result["calendars"][CALENDAR_ID]["busy"], now, week_later
+    raw_busy = result["calendars"][CALENDAR_ID]["busy"]
+
+    # Convert busy times from UTC to EAT for correct local slot comparison
+    eat_busy = [
+        {
+            "start": (datetime.fromisoformat(b["start"].replace("Z", "")) + timedelta(hours=3)).isoformat(),
+            "end":   (datetime.fromisoformat(b["end"].replace("Z", ""))   + timedelta(hours=3)).isoformat()
+        }
+        for b in raw_busy
+    ]
+    now = now_eat()
+    week_later = now + timedelta(days=7)
+    return eat_busy, now, week_later
 
 # --- Check availability for a specific day ---
 def check_day_availability(day_name: str, busy_times: list, now: datetime, week_later: datetime):
@@ -96,7 +204,7 @@ def check_day_availability(day_name: str, busy_times: list, now: datetime, week_
         current += timedelta(days=1)
 
     while current <= week_later:
-        if current.strftime("%A").lower() == day_name.lower() and current.weekday() < 5:
+        if current.strftime("%A").lower() == day_name.lower():
             slot_end = current + timedelta(hours=1)
             is_busy = any(
                 datetime.fromisoformat(b["start"].replace("Z", "")) < slot_end and
@@ -118,7 +226,7 @@ def get_available_slots(requested_day: str = None):
             day_slots = check_day_availability(requested_day, busy_times, now, week_later)
 
             if not day_slots:
-                return f"{requested_day} is not a working day or is outside this week. Please choose Monday to Friday."
+                return f"No available slots found for {requested_day} this week."
 
             open_slots = [t for t, busy in day_slots if not busy]
             closed_slots = [t for t, busy in day_slots if busy]
@@ -133,7 +241,7 @@ def get_available_slots(requested_day: str = None):
                 seen_days = set()
                 while check <= week_later and len(available_days) < 3:
                     dname = check.strftime("%A")
-                    if dname.lower() != requested_day.lower() and check.weekday() < 5 and dname not in seen_days:
+                    if dname.lower() != requested_day.lower() and dname not in seen_days:
                         slot_end = check + timedelta(hours=1)
                         is_busy = any(
                             datetime.fromisoformat(b["start"].replace("Z", "")) < slot_end and
@@ -171,21 +279,20 @@ def get_available_slots(requested_day: str = None):
         day_slot_counts = {}
 
         while current <= week_later:
-            if current.weekday() < 5:
-                dname = current.strftime("%A")
-                slot_end = current + timedelta(hours=1)
-                is_busy = any(
-                    datetime.fromisoformat(b["start"].replace("Z", "")) < slot_end and
-                    datetime.fromisoformat(b["end"].replace("Z", "")) > current
-                    for b in busy_times
-                )
-                if dname not in day_slot_counts:
-                    day_slot_counts[dname] = {"total": 0, "busy": 0}
-                day_slot_counts[dname]["total"] += 1
-                if is_busy:
-                    day_slot_counts[dname]["busy"] += 1
-                elif len(available) < 5:
-                    available.append(f"{dname} {current.strftime('%I:%M %p')}")
+            dname = current.strftime("%A")
+            slot_end = current + timedelta(hours=1)
+            is_busy = any(
+                datetime.fromisoformat(b["start"].replace("Z", "")) < slot_end and
+                datetime.fromisoformat(b["end"].replace("Z", "")) > current
+                for b in busy_times
+            )
+            if dname not in day_slot_counts:
+                day_slot_counts[dname] = {"total": 0, "busy": 0}
+            day_slot_counts[dname]["total"] += 1
+            if is_busy:
+                day_slot_counts[dname]["busy"] += 1
+            elif len(available) < 5:
+                available.append(f"{dname} {current.strftime('%I:%M %p')}")
             current += timedelta(hours=1)
 
         for day, counts in day_slot_counts.items():
@@ -226,10 +333,9 @@ def cancel_appointment_from_calendar(appointment_id: str):
 
         # Delete from Google Calendar
         service = get_calendar_service()
-        now = datetime.utcnow()
         events_result = service.events().list(
             calendarId=CALENDAR_ID,
-            timeMin=now.isoformat() + "Z",
+            timeMin=datetime.utcnow().isoformat() + "Z",
             q=name,
             singleEvents=True,
             orderBy="startTime"
@@ -280,17 +386,17 @@ def reschedule_appointment(appointment_id: str, new_time: str):
         db_id, name, phone, old_time = row
         conn.execute(
             "UPDATE appointments SET appointment_time = ?, booked_at = ? WHERE id = ?",
-            (new_time, datetime.utcnow().isoformat(), db_id)
+            (new_time, now_eat().isoformat(), db_id)
         )
         conn.commit()
         conn.close()
 
         # Delete old Google Calendar event
         service = get_calendar_service()
-        now = datetime.utcnow()
+        now = now_eat()
         events_result = service.events().list(
             calendarId=CALENDAR_ID,
-            timeMin=now.isoformat() + "Z",
+            timeMin=datetime.utcnow().isoformat() + "Z",
             q=name,
             singleEvents=True,
             orderBy="startTime"
@@ -319,8 +425,8 @@ def reschedule_appointment(appointment_id: str, new_time: str):
         event = {
             "summary": f"Dental Appointment - {name}",
             "description": f"Patient: {name}\nPhone: {phone}\nAppointment ID: {appointment_id}\nRescheduled from: {old_time}",
-            "start": {"dateTime": event_start.isoformat(), "timeZone": "UTC"},
-            "end": {"dateTime": event_end.isoformat(), "timeZone": "UTC"},
+            "start": {"dateTime": event_start.isoformat(), "timeZone": "Africa/Addis_Ababa"},
+            "end": {"dateTime": event_end.isoformat(), "timeZone": "Africa/Addis_Ababa"},
         }
         service.events().insert(calendarId=CALENDAR_ID, body=event).execute()
         print(f"✅ Rescheduled {name} from {old_time} to {new_time} | ID: {appointment_id}")
@@ -334,7 +440,7 @@ def reschedule_appointment(appointment_id: str, new_time: str):
 def book_appointment_on_calendar(patient_name: str, phone: str, appointment_time: str):
     try:
         service = get_calendar_service()
-        now = datetime.utcnow()
+        now = now_eat()
         days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
         parts = appointment_time.split()
         if len(parts) >= 3:
@@ -354,15 +460,15 @@ def book_appointment_on_calendar(patient_name: str, phone: str, appointment_time
         event = {
             "summary": f"Dental Appointment - {patient_name}",
             "description": f"Patient: {patient_name}\nPhone: {phone}\nAppointment ID: {appt_id}",
-            "start": {"dateTime": event_start.isoformat(), "timeZone": "UTC"},
-            "end": {"dateTime": event_end.isoformat(), "timeZone": "UTC"},
+            "start": {"dateTime": event_start.isoformat(), "timeZone": "Africa/Addis_Ababa"},
+            "end": {"dateTime": event_end.isoformat(), "timeZone": "Africa/Addis_Ababa"},
         }
         service.events().insert(calendarId=CALENDAR_ID, body=event).execute()
 
         conn = sqlite3.connect("appointments.db")
         conn.execute(
             "INSERT INTO appointments (appointment_id, patient_name, phone, appointment_time, booked_at) VALUES (?, ?, ?, ?, ?)",
-            (appt_id, patient_name, phone, appointment_time, datetime.utcnow().isoformat())
+            (appt_id, patient_name, phone, appointment_time, now_eat().isoformat())
         )
         conn.commit()
         conn.close()
@@ -378,12 +484,23 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # --- Routes ---
 @app.get("/")
 async def root():
+    return FileResponse("static/landing.html")
+
+@app.get("/admin")
+async def admin():
     return FileResponse("static/index.html")
 
 
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
+
+@app.get("/api/vapi-config")
+async def vapi_config():
+    return {
+        "publicKey": os.getenv("VAPI_PUBLIC_KEY", ""),
+        "assistantId": os.getenv("VAPI_ASSISTANT_ID", "")
+    }
 
 @app.get("/appointments")
 async def list_appointments():
@@ -397,6 +514,65 @@ async def list_appointments():
         for r in rows
     ]
     return {"total_appointments": len(appointments), "appointments": appointments}
+
+@app.post("/api/chat")
+async def chat_endpoint(request: Request):
+    try:
+        body = await request.json()
+        messages = body.get("messages", [])
+        system_prompt = open("prompts/system_prompt.txt", encoding="utf-8").read()
+
+        model = genai.GenerativeModel(
+            model_name="gemini-2.5-flash",
+            system_instruction=system_prompt,
+            tools=[GEMINI_TOOLS]
+        )
+
+        # Build history from all but last message
+        history = []
+        for msg in messages[:-1]:
+            role = "model" if msg["role"] == "assistant" else "user"
+            history.append({"role": role, "parts": [{"text": msg["content"]}]})
+
+        chat = model.start_chat(history=history)
+        user_msg = messages[-1]["content"] if messages else ""
+
+        # Agentic loop — handle tool calls until final text reply
+        fn_response = None
+        for _ in range(6):
+            if fn_response is None:
+                response = chat.send_message(user_msg)
+            else:
+                response = chat.send_message([
+                    genai.protos.Part(
+                        function_response=genai.protos.FunctionResponse(
+                            name=fn_response["name"],
+                            response={"result": fn_response["result"]}
+                        )
+                    )
+                ])
+
+            fn_part = next(
+                (p.function_call for p in response.parts if hasattr(p, "function_call") and p.function_call.name),
+                None
+            )
+
+            if fn_part:
+                fn_result = handle_tool_call(fn_part.name, dict(fn_part.args))
+                fn_response = {"name": fn_part.name, "result": fn_result}
+            else:
+                reply = response.text
+                messages.append({"role": "assistant", "content": reply})
+                return {"reply": reply, "messages": messages}
+
+        return {"reply": "I'm having trouble completing that. Please try again.", "messages": messages}
+
+    except Exception as e:
+        import traceback
+        print(f"Chat error: {e}")
+        traceback.print_exc()
+        return JSONResponse(status_code=200, content={"reply": f"Error: {str(e)}", "messages": []})
+
 
 @app.post("/api/webhook/voice")
 async def voice_ai_webhook(request: Request):
