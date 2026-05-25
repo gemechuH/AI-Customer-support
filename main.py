@@ -33,21 +33,26 @@ app = FastAPI(title="AI Voice Assistant API")
 CREDENTIALS_FILE = "ai-customer-support-for-dental-97534c20c8ce.json"
 CALENDAR_ID = "gemechuhunduma20@gmail.com"
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
-BUSINESS_START = 0   # midnight — calendar is the only gate
-BUSINESS_END = 24
+BUSINESS_START = 8   # 8 AM default open; admin closes hours via Google Calendar
+BUSINESS_END = 20    # 8 PM default close
 
 GEMINI_TOOLS = genai.protos.Tool(function_declarations=[
     genai.protos.FunctionDeclaration(
         name="check_calendar",
-        description="Check available appointment slots. Use when patient asks about availability or wants to book.",
+        description="Check if a specific day and time is available for booking. Always call this before booking to confirm the slot is free.",
         parameters=genai.protos.Schema(
             type=genai.protos.Type.OBJECT,
             properties={
                 "requested_day": genai.protos.Schema(
                     type=genai.protos.Type.STRING,
-                    description="Day to check e.g. Monday. Omit to see all slots this week."
+                    description="Day the patient wants e.g. Monday, Saturday"
+                ),
+                "requested_time": genai.protos.Schema(
+                    type=genai.protos.Type.STRING,
+                    description="Time the patient wants e.g. 10:00 AM, 2:30 PM"
                 )
-            }
+            },
+            required=["requested_day", "requested_time"]
         )
     ),
     genai.protos.FunctionDeclaration(
@@ -141,7 +146,7 @@ def spell_id(appt_id: str) -> str:
 
 def handle_tool_call(name: str, args: dict) -> str:
     if name == "check_calendar":
-        return get_available_slots(args.get("requested_day"))
+        return get_available_slots(args.get("requested_day"), args.get("requested_time"))
     elif name == "book_appointment":
         success, appt_id = book_appointment_on_calendar(
             args["patient_name"], args["phone"], args["appointment_time"]
@@ -217,101 +222,55 @@ def check_day_availability(day_name: str, busy_times: list, now: datetime, week_
     return day_slots
 
 # --- Main calendar check function ---
-def get_available_slots(requested_day: str = None):
+def get_available_slots(requested_day: str = None, requested_time: str = None):
     try:
-        busy_times, now, week_later = fetch_busy_times()
+        busy_times, now, _ = fetch_busy_times()
 
-        # If a specific day was requested
-        if requested_day:
-            day_slots = check_day_availability(requested_day, busy_times, now, week_later)
-
-            if not day_slots:
-                return f"No available slots found for {requested_day} this week."
-
-            open_slots = [t for t, busy in day_slots if not busy]
-            closed_slots = [t for t, busy in day_slots if busy]
-
-            if not open_slots:
-                # Fully closed day
-                # Find next available days
-                available_days = []
-                check = now.replace(hour=BUSINESS_START, minute=0, second=0, microsecond=0)
-                if check < now:
-                    check += timedelta(days=1)
-                seen_days = set()
-                while check <= week_later and len(available_days) < 3:
-                    dname = check.strftime("%A")
-                    if dname.lower() != requested_day.lower() and dname not in seen_days:
-                        slot_end = check + timedelta(hours=1)
-                        is_busy = any(
-                            datetime.fromisoformat(b["start"].replace("Z", "")) < slot_end and
-                            datetime.fromisoformat(b["end"].replace("Z", "")) > check
-                            for b in busy_times
-                        )
-                        if not is_busy:
-                            available_days.append(f"{dname} at {check.strftime('%I:%M %p')}")
-                            seen_days.add(dname)
-                    check += timedelta(hours=1)
-
-                msg = f"{requested_day} is fully closed."
-                if available_days:
-                    msg += f" Next available times are: {', '.join(available_days)}."
-                return msg
-
-            elif len(closed_slots) > 0:
-                # Partially open
-                return (
-                    f"{requested_day} is partially available. "
-                    f"Open slots: {', '.join(open_slots)}. "
-                    f"Booked slots: {', '.join(closed_slots)}."
-                )
-            else:
-                # Fully open
-                return f"{requested_day} is fully open. Available times: {', '.join(open_slots)}."
-
-        # No specific day — return next 5 available slots across the week
-        available = []
-        closed_days = {}
-        current = now.replace(hour=BUSINESS_START, minute=0, second=0, microsecond=0)
-        if current < now:
-            current += timedelta(days=1)
-
-        day_slot_counts = {}
-
-        while current <= week_later:
-            dname = current.strftime("%A")
-            slot_end = current + timedelta(hours=1)
-            is_busy = any(
+        def slot_is_busy(slot_start):
+            # 2-hour appointment window
+            slot_end = slot_start + timedelta(hours=2)
+            return any(
                 datetime.fromisoformat(b["start"].replace("Z", "")) < slot_end and
-                datetime.fromisoformat(b["end"].replace("Z", "")) > current
+                datetime.fromisoformat(b["end"].replace("Z", "")) > slot_start
                 for b in busy_times
             )
-            if dname not in day_slot_counts:
-                day_slot_counts[dname] = {"total": 0, "busy": 0}
-            day_slot_counts[dname]["total"] += 1
-            if is_busy:
-                day_slot_counts[dname]["busy"] += 1
-            elif len(available) < 5:
-                available.append(f"{dname} {current.strftime('%I:%M %p')}")
-            current += timedelta(hours=1)
 
-        for day, counts in day_slot_counts.items():
-            if counts["total"] > 0 and counts["busy"] == counts["total"]:
-                closed_days[day] = True
+        def resolve_day(day_name):
+            days_map = {d.lower(): i for i, d in enumerate(
+                ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"])}
+            idx = days_map.get(day_name.lower())
+            if idx is None:
+                return None
+            target = now + timedelta(days=(idx - now.weekday()) % 7)
+            if target.date() < now.date():
+                target += timedelta(weeks=1)
+            return target
 
-        parts = []
-        if closed_days:
-            parts.append(f"{', '.join(closed_days.keys())} {'is' if len(closed_days) == 1 else 'are'} fully closed this week.")
-        if available:
-            parts.append(f"Available times: {', '.join(available)}.")
-        else:
-            parts.append("No available slots this week.")
+        # Both day + time given — check that exact slot
+        if requested_day and requested_time:
+            target = resolve_day(requested_day)
+            if target is None:
+                return f"I don't recognise '{requested_day}'. Please use a day name like Monday."
+            try:
+                slot_start = datetime.strptime(
+                    f"{target.strftime('%Y-%m-%d')} {requested_time}", "%Y-%m-%d %I:%M %p"
+                )
+            except ValueError:
+                return f"I couldn't understand the time '{requested_time}'. Please use a format like 10:00 AM."
 
-        return " ".join(parts)
+            if slot_start <= now:
+                return "That time has already passed. Please choose a future time."
+            if not (BUSINESS_START <= slot_start.hour < BUSINESS_END):
+                return f"Our hours are {BUSINESS_START}:00 AM to {BUSINESS_END % 12 or BUSINESS_END}:00 PM. Please pick a time within those hours."
+            if slot_is_busy(slot_start):
+                return f"Sorry, {requested_day} at {requested_time} is already reserved. Please choose a different time."
+            return f"{requested_day} at {requested_time} is available."
+
+        return "Please tell me which day and time you'd prefer."
 
     except Exception as e:
         print(f"Calendar error: {e}")
-        return "Available times: Tuesday 2:00 PM, Wednesday 11:00 AM, Thursday 10:00 AM."
+        return "I had trouble checking the calendar. Please try again."
 
 # --- Cancel appointment ---
 def cancel_appointment_from_calendar(appointment_id: str):
@@ -421,7 +380,7 @@ def reschedule_appointment(appointment_id: str, new_time: str):
         else:
             event_start = now + timedelta(hours=1)
 
-        event_end = event_start + timedelta(hours=1)
+        event_end = event_start + timedelta(hours=2)
         event = {
             "summary": f"Dental Appointment - {name}",
             "description": f"Patient: {name}\nPhone: {phone}\nAppointment ID: {appointment_id}\nRescheduled from: {old_time}",
@@ -455,7 +414,7 @@ def book_appointment_on_calendar(patient_name: str, phone: str, appointment_time
         else:
             event_start = now + timedelta(hours=1)
 
-        event_end = event_start + timedelta(hours=1)
+        event_end = event_start + timedelta(hours=2)
         appt_id = generate_appointment_id()
         event = {
             "summary": f"Dental Appointment - {patient_name}",
@@ -598,8 +557,9 @@ async def voice_ai_webhook(request: Request):
 
                 if function_name == "check_calendar":
                     requested_day = args.get("requested_day", None)
-                    print(f"📅 Checking calendar for: {requested_day or 'all week'}")
-                    response_text = get_available_slots(requested_day)
+                    requested_time = args.get("requested_time", None)
+                    print(f"Checking calendar: {requested_day} {requested_time}")
+                    response_text = get_available_slots(requested_day, requested_time)
                     print(f"✅ {response_text}")
                     tool_results.append({"toolCallId": tool_call_id, "result": response_text})
 
